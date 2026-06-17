@@ -11,13 +11,25 @@ CHAT_ID = os.getenv("CHAT_ID")
 SEEN_FILE = "seen.json"
 
 RSS_FEEDS = [
+    # Haber siteleri
     "https://www.gundemkibris.com/rss",
     "https://www.kibrispostasi.com/rss",
     "https://haberkibris.com/rss",
     "https://www.kibrisgazetesi.com/rss",
     "https://www.diyaloggazetesi.com/rss",
-]
 
+    # Siyasi parti / kurum aday RSS adresleri
+    "https://www.kktcb.org/tr/rss",
+    "https://www.kktcb.org/tr/feed",
+    "https://ubp.org.tr/feed/",
+    "https://www.ctp.org.cy/feed/",
+    "https://ctpar.org/feed/",
+    "https://halkinpartisi.org/feed/",
+    "https://www.dp.org.tr/feed/",
+    "https://ydp.org.tr/feed/",
+    "https://saglik.gov.ct.tr/HABERLER/category/haberler/rss",
+    "https://saglik.gov.ct.tr/HABERLER/category/duyurular/rss",
+]
 FACEBOOK_ACCOUNTS = [
     {"name": "Polis Basın Subaylığı", "id": "kktc.pgm", "category": "⚫ POLİS"},
     {"name": "Ünal Üstel", "id": "unal.ustel.9", "category": "🟡 SİYASET"},
