@@ -4,6 +4,7 @@ import hashlib
 import requests
 import feedparser
 from datetime import datetime
+from facebook_scraper import get_posts
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -17,6 +18,24 @@ RSS_FEEDS = [
     "https://www.diyaloggazetesi.com/rss",
 ]
 
+FACEBOOK_ACCOUNTS = [
+    {
+        "name": "Polis Basın Subaylığı",
+        "id": "kktc.pgm",
+        "category": "⚫ POLİS"
+    },
+    {
+        "name": "Ünal Üstel",
+        "id": "unal.ustel.9",
+        "category": "🟡 SİYASET"
+    },
+    {
+        "name": "Tufan Erhürman",
+        "id": "tufan.erhurman",
+        "category": "🟡 SİYASET"
+    },
+]
+
 IMPORTANT_KEYWORDS = [
     "son dakika", "kaza", "trafik kazası", "yangın", "patlama",
     "cinayet", "ölü", "yaralı", "tutuklandı", "tutuklama",
@@ -28,9 +47,7 @@ IMPORTANT_KEYWORDS = [
     "tatar", "üstel", "erhürman", "özersay", "arıklı", "ataoğlu"
 ]
 
-IGNORE_KEYWORDS = [
-    "magazin", "burç", "astroloji", "reklam", "ilan"
-]
+IGNORE_KEYWORDS = ["magazin", "burç", "astroloji", "reklam", "ilan"]
 
 
 def load_seen():
@@ -45,7 +62,7 @@ def load_seen():
 
 def save_seen(seen):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(seen)[-1000:], f, ensure_ascii=False, indent=2)
+        json.dump(list(seen)[-1500:], f, ensure_ascii=False, indent=2)
 
 
 def make_id(text):
@@ -55,7 +72,27 @@ def make_id(text):
 def clean_text(text):
     if not text:
         return ""
-    return " ".join(text.replace("\n", " ").split())
+    return " ".join(str(text).replace("\n", " ").split())
+
+
+def send_telegram(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    response = requests.post(
+        url,
+        json={
+            "chat_id": CHAT_ID,
+            "text": message,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": False,
+        },
+        timeout=20,
+    )
+
+    if response.status_code != 200:
+        print("Telegram hatası:", response.text)
+        return False
+
+    return True
 
 
 def is_important(title, summary=""):
@@ -82,35 +119,11 @@ def detect_category(title, summary=""):
     return "⚫ KRİTİK"
 
 
-def send_telegram(message):
-    if not BOT_TOKEN or not CHAT_ID:
-        print("BOT_TOKEN veya CHAT_ID eksik.")
-        return False
-
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": False,
-    }
-
-    response = requests.post(url, json=payload, timeout=20)
-
-    if response.status_code != 200:
-        print("Telegram hatası:", response.text)
-        return False
-
-    return True
-
-
-def check_feeds():
-    seen = load_seen()
+def check_rss(seen):
     new_count = 0
 
     for feed_url in RSS_FEEDS:
-        print(f"Kontrol ediliyor: {feed_url}")
+        print(f"RSS kontrol ediliyor: {feed_url}")
 
         try:
             feed = feedparser.parse(feed_url)
@@ -121,7 +134,7 @@ def check_feeds():
                 link = entry.get("link", "")
                 summary = clean_text(entry.get("summary", ""))
 
-                unique_id = make_id(title + link)
+                unique_id = make_id("rss-" + title + link)
 
                 if unique_id in seen:
                     continue
@@ -149,15 +162,77 @@ def check_feeds():
                 message += link
 
                 if send_telegram(message):
-                    print(f"Gönderildi: {title}")
+                    print(f"RSS gönderildi: {title}")
                     new_count += 1
 
         except Exception as e:
-            print(f"Feed hatası: {feed_url} - {e}")
+            print(f"RSS hatası: {feed_url} - {e}")
+
+    return new_count
+
+
+def check_facebook(seen):
+    new_count = 0
+
+    for account in FACEBOOK_ACCOUNTS:
+        print(f"Facebook kontrol ediliyor: {account['name']}")
+
+        try:
+            posts = get_posts(account["id"], pages=1)
+
+            for post in posts:
+                post_id = str(post.get("post_id") or "")
+                text = clean_text(post.get("text") or "")
+                time_value = post.get("time")
+                url = post.get("post_url") or f"https://www.facebook.com/{account['id']}"
+
+                if not post_id and not text:
+                    continue
+
+                unique_id = make_id("fb-" + account["id"] + post_id + text[:80])
+
+                if unique_id in seen:
+                    continue
+
+                seen.add(unique_id)
+
+                short_text = text[:450] + "..." if len(text) > 450 else text
+                now = datetime.now().strftime("%d.%m.%Y %H:%M")
+
+                message = (
+                    f"{account['category']}\n\n"
+                    f"<b>{account['name']} yeni paylaşım yaptı</b>\n\n"
+                    f"Saat: {now}\n\n"
+                )
+
+                if short_text:
+                    message += f"{short_text}\n\n"
+
+                message += url
+
+                if send_telegram(message):
+                    print(f"Facebook gönderildi: {account['name']}")
+                    new_count += 1
+
+                break
+
+        except Exception as e:
+            print(f"Facebook hatası: {account['name']} - {e}")
+
+    return new_count
+
+
+def main():
+    seen = load_seen()
+
+    rss_count = check_rss(seen)
+    fb_count = check_facebook(seen)
 
     save_seen(seen)
-    print(f"Toplam yeni önemli haber: {new_count}")
+
+    print(f"Toplam yeni RSS haber: {rss_count}")
+    print(f"Toplam yeni Facebook paylaşımı: {fb_count}")
 
 
 if __name__ == "__main__":
-    check_feeds()
+    main()
