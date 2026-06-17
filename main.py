@@ -1,5 +1,4 @@
 import os
-import html
 import json
 import hashlib
 import requests
@@ -20,21 +19,9 @@ RSS_FEEDS = [
 ]
 
 FACEBOOK_ACCOUNTS = [
-    {
-        "name": "Polis Basın Subaylığı",
-        "id": "kktc.pgm",
-        "category": "⚫ POLİS"
-    },
-    {
-        "name": "Ünal Üstel",
-        "id": "unal.ustel.9",
-        "category": "🟡 SİYASET"
-    },
-    {
-        "name": "Tufan Erhürman",
-        "id": "tufan.erhurman",
-        "category": "🟡 SİYASET"
-    },
+    {"name": "Polis Basın Subaylığı", "id": "kktc.pgm", "category": "⚫ POLİS"},
+    {"name": "Ünal Üstel", "id": "unal.ustel.9", "category": "🟡 SİYASET"},
+    {"name": "Tufan Erhürman", "id": "tufan.erhurman", "category": "🟡 SİYASET"},
 ]
 
 IMPORTANT_KEYWORDS = [
@@ -54,6 +41,7 @@ IGNORE_KEYWORDS = ["magazin", "burç", "astroloji", "reklam", "ilan"]
 def load_seen():
     if not os.path.exists(SEEN_FILE):
         return set()
+
     try:
         with open(SEEN_FILE, "r", encoding="utf-8") as f:
             return set(json.load(f))
@@ -73,31 +61,38 @@ def make_id(text):
 def clean_text(text):
     if not text:
         return ""
-    return " ".join(str(text).replace("\n", " ").split())
+
+    text = str(text)
+    text = text.replace("\n", " ")
+    text = text.replace("\r", " ")
+    return " ".join(text.split())
 
 
 def send_telegram(message):
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    response = requests.post(
-        url,
-        json={
-            "chat_id": CHAT_ID,
-            "text": message,
-            payload = {
-    "chat_id": CHAT_ID,
-    "text": message,
-    "disable_web_page_preview": False,
-}
-            "disable_web_page_preview": False,
-        },
-        timeout=20,
-    )
-
-    if response.status_code != 200:
-        print("Telegram hatası:", response.text)
+    if not BOT_TOKEN or not CHAT_ID:
+        print("BOT_TOKEN veya CHAT_ID eksik.")
         return False
 
-    return True
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "disable_web_page_preview": False
+    }
+
+    try:
+        response = requests.post(url, json=payload, timeout=20)
+
+        if response.status_code != 200:
+            print("Telegram hatası:", response.text)
+            return False
+
+        return True
+
+    except Exception as e:
+        print("Telegram istek hatası:", e)
+        return False
 
 
 def is_important(title, summary=""):
@@ -156,7 +151,7 @@ def check_rss(seen):
 
                 message = (
                     f"{category}\n\n"
-                    f"<b>{title}</b>\n\n"
+                    f"{title}\n\n"
                     f"Kaynak: {source_name}\n"
                     f"Saat: {now}\n\n"
                 )
@@ -183,30 +178,29 @@ def check_facebook(seen):
         print(f"Facebook kontrol ediliyor: {account['name']}")
 
         try:
-            posts = get_posts(account["id"], pages=1)
+            posts = get_posts(account["id"], pages=2)
 
             for post in posts:
                 post_id = str(post.get("post_id") or "")
                 text = clean_text(post.get("text") or "")
-                time_value = post.get("time")
                 url = post.get("post_url") or f"https://www.facebook.com/{account['id']}"
 
                 if not post_id and not text:
                     continue
 
-                unique_id = make_id("fb-" + account["id"] + post_id + text[:80])
+                unique_id = make_id("fb-" + account["id"] + post_id + text[:100])
 
                 if unique_id in seen:
                     continue
 
                 seen.add(unique_id)
 
-                short_text = text[:450] + "..." if len(text) > 450 else text
+                short_text = text[:500] + "..." if len(text) > 500 else text
                 now = datetime.now().strftime("%d.%m.%Y %H:%M")
 
                 message = (
                     f"{account['category']}\n\n"
-                    f"<b>{account['name']} yeni paylaşım yaptı</b>\n\n"
+                    f"{account['name']} yeni paylaşım yaptı\n\n"
                     f"Saat: {now}\n\n"
                 )
 
