@@ -4,32 +4,34 @@ import hashlib
 import requests
 import feedparser
 from datetime import datetime
-from facebook_scraper import get_posts
+
+try:
+    from facebook_scraper import get_posts
+except Exception:
+    get_posts = None
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 SEEN_FILE = "seen.json"
 
 RSS_FEEDS = [
-    # Haber siteleri
     "https://www.gundemkibris.com/rss",
     "https://www.kibrispostasi.com/rss",
     "https://haberkibris.com/rss",
     "https://www.kibrisgazetesi.com/rss",
     "https://www.diyaloggazetesi.com/rss",
 
-    # Siyasi parti / kurum aday RSS adresleri
     "https://www.kktcb.org/tr/rss",
     "https://www.kktcb.org/tr/feed",
     "https://ubp.org.tr/feed/",
     "https://www.ctp.org.cy/feed/",
-    "https://ctpar.org/feed/",
     "https://halkinpartisi.org/feed/",
     "https://www.dp.org.tr/feed/",
     "https://ydp.org.tr/feed/",
     "https://saglik.gov.ct.tr/HABERLER/category/haberler/rss",
     "https://saglik.gov.ct.tr/HABERLER/category/duyurular/rss",
 ]
+
 FACEBOOK_ACCOUNTS = [
     {"name": "Polis Basın Subaylığı", "id": "kktc.pgm", "category": "⚫ POLİS"},
     {"name": "Ünal Üstel", "id": "unal.ustel.9", "category": "🟡 SİYASET"},
@@ -44,19 +46,22 @@ IMPORTANT_KEYWORDS = [
     "elektrik kesintisi", "su kesintisi", "ercan", "hükümet",
     "bakanlar kurulu", "başbakan", "cumhurbaşkanı", "meclis",
     "erken seçim", "5+1", "bm", "kıbrıs sorunu",
-    "tatar", "üstel", "erhürman", "özersay", "arıklı", "ataoğlu"
+    "tatar", "üstel", "erhürman", "özersay", "arıklı", "ataoğlu",
     "basın açıklaması", "duyuru", "bakanlık", "kurum", "parti meclisi",
-"genel başkan", "merkez yönetim", "cumhurbaşkanlığı",
-"başbakanlık", "bakan", "müsteşar", "resmi gazete"
+    "genel başkan", "merkez yönetim", "cumhurbaşkanlığı",
+    "başbakanlık", "bakan", "müsteşar", "resmi gazete"
 ]
 
 IGNORE_KEYWORDS = ["magazin", "burç", "astroloji", "reklam", "ilan"]
 
 
+def log(text):
+    print(text, flush=True)
+
+
 def load_seen():
     if not os.path.exists(SEEN_FILE):
         return set()
-
     try:
         with open(SEEN_FILE, "r", encoding="utf-8") as f:
             return set(json.load(f))
@@ -76,37 +81,35 @@ def make_id(text):
 def clean_text(text):
     if not text:
         return ""
-
-    text = str(text)
-    text = text.replace("\n", " ")
-    text = text.replace("\r", " ")
-    return " ".join(text.split())
+    return " ".join(str(text).replace("\n", " ").replace("\r", " ").split())
 
 
 def send_telegram(message):
     if not BOT_TOKEN or not CHAT_ID:
-        print("BOT_TOKEN veya CHAT_ID eksik.")
+        log("BOT_TOKEN veya CHAT_ID eksik.")
         return False
 
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "disable_web_page_preview": False
-    }
-
     try:
-        response = requests.post(url, json=payload, timeout=20)
+        r = requests.post(
+            url,
+            json={
+                "chat_id": CHAT_ID,
+                "text": message,
+                "disable_web_page_preview": False
+            },
+            timeout=15
+        )
 
-        if response.status_code != 200:
-            print("Telegram hatası:", response.text)
+        if r.status_code != 200:
+            log(f"Telegram hatası: {r.text}")
             return False
 
         return True
 
     except Exception as e:
-        print("Telegram istek hatası:", e)
+        log(f"Telegram istek hatası: {e}")
         return False
 
 
@@ -134,73 +137,98 @@ def detect_category(title, summary=""):
     return "⚫ KRİTİK"
 
 
+def fetch_feed(feed_url):
+    try:
+        r = requests.get(
+            feed_url,
+            timeout=10,
+            headers={
+                "User-Agent": "Mozilla/5.0 MYK-Radar-Bot"
+            }
+        )
+
+        if r.status_code != 200:
+            log(f"RSS erişim hatası {r.status_code}: {feed_url}")
+            return None
+
+        return feedparser.parse(r.content)
+
+    except Exception as e:
+        log(f"RSS timeout/hata: {feed_url} - {e}")
+        return None
+
+
 def check_rss(seen):
     new_count = 0
 
     for feed_url in RSS_FEEDS:
-        print(f"RSS kontrol ediliyor: {feed_url}")
+        log(f"RSS kontrol ediliyor: {feed_url}")
 
-        try:
-            feed = feedparser.parse(feed_url)
-            source_name = feed.feed.get("title", feed_url)
+        feed = fetch_feed(feed_url)
 
-            for entry in feed.entries[:10]:
-                title = clean_text(entry.get("title", "Başlık yok"))
-                link = entry.get("link", "")
-                summary = clean_text(entry.get("summary", ""))
+        if not feed:
+            continue
 
-                unique_id = make_id("rss-" + title + link)
+        source_name = feed.feed.get("title", feed_url)
 
-                if unique_id in seen:
-                    continue
+        for entry in feed.entries[:8]:
+            title = clean_text(entry.get("title", "Başlık yok"))
+            link = entry.get("link", "")
+            summary = clean_text(entry.get("summary", ""))
 
-                seen.add(unique_id)
+            unique_id = make_id("rss-" + title + link)
 
-                if not is_important(title, summary):
-                    continue
+            if unique_id in seen:
+                continue
 
-                category = detect_category(title, summary)
-                now = datetime.now().strftime("%d.%m.%Y %H:%M")
+            seen.add(unique_id)
 
-                short_summary = summary[:220] + "..." if len(summary) > 220 else summary
+            if not is_important(title, summary):
+                continue
 
-                message = (
-                    f"{category}\n\n"
-                    f"{title}\n\n"
-                    f"Kaynak: {source_name}\n"
-                    f"Saat: {now}\n\n"
-                )
+            category = detect_category(title, summary)
+            now = datetime.now().strftime("%d.%m.%Y %H:%M")
 
-                if short_summary:
-                    message += f"{short_summary}\n\n"
+            short_summary = summary[:220] + "..." if len(summary) > 220 else summary
 
-                message += link
+            message = (
+                f"{category}\n\n"
+                f"{title}\n\n"
+                f"Kaynak: {source_name}\n"
+                f"Saat: {now}\n\n"
+            )
 
-                if send_telegram(message):
-                    print(f"RSS gönderildi: {title}")
-                    new_count += 1
+            if short_summary:
+                message += f"{short_summary}\n\n"
 
-        except Exception as e:
-            print(f"RSS hatası: {feed_url} - {e}")
+            message += link
+
+            if send_telegram(message):
+                log(f"RSS gönderildi: {title}")
+                new_count += 1
 
     return new_count
 
 
 def check_facebook(seen):
+    if get_posts is None:
+        log("Facebook modülü yüklenemedi, atlanıyor.")
+        return 0
+
     new_count = 0
 
     for account in FACEBOOK_ACCOUNTS:
-        print(f"Facebook kontrol ediliyor: {account['name']}")
+        log(f"Facebook kontrol ediliyor: {account['name']}")
 
         try:
-            posts = get_posts(account["id"], pages=2)
+            posts = get_posts(account["id"], pages=1, timeout=10)
 
             for post in posts:
-                post_id = str(post.get("post_id") or "")
                 text = clean_text(post.get("text") or "")
+                post_id = str(post.get("post_id") or "")
                 url = post.get("post_url") or f"https://www.facebook.com/{account['id']}"
 
-                if not post_id and not text:
+                if not text and not post_id:
                     continue
 
                 unique_id = make_id("fb-" + account["id"] + post_id + text[:100])
@@ -225,18 +253,20 @@ def check_facebook(seen):
                 message += url
 
                 if send_telegram(message):
-                    print(f"Facebook gönderildi: {account['name']}")
+                    log(f"Facebook gönderildi: {account['name']}")
                     new_count += 1
 
                 break
 
         except Exception as e:
-            print(f"Facebook hatası: {account['name']} - {e}")
+            log(f"Facebook hatası: {account['name']} - {e}")
 
     return new_count
 
 
 def main():
+    log("MYK Radar başladı.")
+
     seen = load_seen()
 
     rss_count = check_rss(seen)
@@ -244,8 +274,9 @@ def main():
 
     save_seen(seen)
 
-    print(f"Toplam yeni RSS haber: {rss_count}")
-    print(f"Toplam yeni Facebook paylaşımı: {fb_count}")
+    log(f"Toplam yeni RSS haber: {rss_count}")
+    log(f"Toplam yeni Facebook paylaşımı: {fb_count}")
+    log("MYK Radar tamamlandı.")
 
 
 if __name__ == "__main__":
