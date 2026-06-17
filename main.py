@@ -5,6 +5,7 @@ import requests
 import feedparser
 import time
 from datetime import datetime
+from bs4 import BeautifulSoup
 
 try:
     from facebook_scraper import get_posts
@@ -90,7 +91,19 @@ def make_id(text):
 def clean_text(text):
     if not text:
         return ""
-    return " ".join(str(text).replace("\n", " ").replace("\r", " ").split())
+
+    try:
+        soup = BeautifulSoup(str(text), "html.parser")
+        text = soup.get_text(" ")
+    except Exception:
+        text = str(text)
+
+    return " ".join(
+        text.replace("\n", " ")
+        .replace("\r", " ")
+        .replace("\t", " ")
+        .split()
+    )
 
 
 def send_telegram(message):
@@ -192,7 +205,7 @@ def check_rss(seen):
         if not feed:
             continue
 
-        source_name = feed.feed.get("title", feed_url)
+        source_name = clean_text(feed.feed.get("title", feed_url))
 
         for entry in feed.entries[:6]:
             if new_count >= MAX_RSS_SEND_PER_RUN:
