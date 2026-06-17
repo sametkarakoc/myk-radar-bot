@@ -1,4 +1,5 @@
 import os
+import html
 import json
 import hashlib
 import requests
@@ -82,7 +83,11 @@ def send_telegram(message):
         json={
             "chat_id": CHAT_ID,
             "text": message,
-            "parse_mode": "HTML",
+            payload = {
+    "chat_id": CHAT_ID,
+    "text": message,
+    "disable_web_page_preview": False,
+}
             "disable_web_page_preview": False,
         },
         timeout=20,
