@@ -45,6 +45,9 @@ IMPORTANT_KEYWORDS = [
     "bakanlar kurulu", "başbakan", "cumhurbaşkanı", "meclis",
     "erken seçim", "5+1", "bm", "kıbrıs sorunu",
     "tatar", "üstel", "erhürman", "özersay", "arıklı", "ataoğlu"
+    "basın açıklaması", "duyuru", "bakanlık", "kurum", "parti meclisi",
+"genel başkan", "merkez yönetim", "cumhurbaşkanlığı",
+"başbakanlık", "bakan", "müsteşar", "resmi gazete"
 ]
 
 IGNORE_KEYWORDS = ["magazin", "burç", "astroloji", "reklam", "ilan"]
