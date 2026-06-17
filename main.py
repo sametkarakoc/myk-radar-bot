@@ -3,6 +3,7 @@ import json
 import hashlib
 import requests
 import feedparser
+import time
 from datetime import datetime
 
 try:
@@ -14,14 +15,13 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 SEEN_FILE = "seen.json"
 
+MAX_RSS_SEND_PER_RUN = 8
+MAX_FACEBOOK_SEND_PER_RUN = 3
+
 RSS_FEEDS = [
-    # Mevcut çalışan ana kaynaklar
     "https://www.gundemkibris.com/rss",
     "https://www.kibrispostasi.com/rss",
-    "https://www.kibrisgazetesi.com/rss",
     "https://www.diyaloggazetesi.com/rss",
-
-    # Aktif KKTC gazeteleri / haber siteleri - RSS adayları
     "https://www.yeniduzen.com/rss",
     "https://www.detaykibris.com/rss",
     "https://www.kibrismanset.com/rss",
@@ -29,22 +29,11 @@ RSS_FEEDS = [
     "https://www.kibristime.com/rss",
     "https://www.nehaberkibris.com/rss",
     "https://www.giynikgazetesi.com/rss",
-    "https://www.ozgurgazetekibris.com/rss",
     "https://www.kibrisadahaber.com/rss",
     "https://www.kibrisgenctv.com/rss",
-    "https://www.brtk.net/rss",
-    "https://www.havadiskibris.com/rss",
-    "https://www.starkibris.net/rss",
-
-    # Alternatif RSS formatları
     "https://kibrisgazetesi.com.tr/rss/",
     "https://www.kibrispostasi.com/feed",
-    "https://www.yeniduzen.com/feed",
-    "https://www.detaykibris.com/feed",
-
-    # Siyasi parti kaynakları
     "https://ubp.org.tr/feed/",
-    "https://www.dp.org.tr/feed/",
 ]
 
 FACEBOOK_ACCOUNTS = [
@@ -64,10 +53,14 @@ IMPORTANT_KEYWORDS = [
     "tatar", "üstel", "erhürman", "özersay", "arıklı", "ataoğlu",
     "basın açıklaması", "duyuru", "bakanlık", "kurum", "parti meclisi",
     "genel başkan", "merkez yönetim", "cumhurbaşkanlığı",
-    "başbakanlık", "bakan", "müsteşar", "resmi gazete"
+    "başbakanlık", "bakan", "müsteşar", "resmi gazete",
+    "seçim", "seçim tarihi", "elektrik kesilecek", "kesinti"
 ]
 
-IGNORE_KEYWORDS = ["magazin", "burç", "astroloji", "reklam", "ilan"]
+IGNORE_KEYWORDS = [
+    "magazin", "burç", "astroloji", "reklam", "ilan",
+    "spor", "futbol", "basketbol"
+]
 
 
 def log(text):
@@ -77,6 +70,7 @@ def log(text):
 def load_seen():
     if not os.path.exists(SEEN_FILE):
         return set()
+
     try:
         with open(SEEN_FILE, "r", encoding="utf-8") as f:
             return set(json.load(f))
@@ -86,7 +80,7 @@ def load_seen():
 
 def save_seen(seen):
     with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(seen)[-1500:], f, ensure_ascii=False, indent=2)
+        json.dump(list(seen)[-2000:], f, ensure_ascii=False, indent=2)
 
 
 def make_id(text):
@@ -107,7 +101,7 @@ def send_telegram(message):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
     try:
-        r = requests.post(
+        response = requests.post(
             url,
             json={
                 "chat_id": CHAT_ID,
@@ -117,8 +111,18 @@ def send_telegram(message):
             timeout=15
         )
 
-        if r.status_code != 200:
-            log(f"Telegram hatası: {r.text}")
+        if response.status_code == 429:
+            try:
+                wait_time = response.json().get("parameters", {}).get("retry_after", 40)
+            except Exception:
+                wait_time = 40
+
+            log(f"Telegram limit yedi. {wait_time} saniye bekleniyor.")
+            time.sleep(wait_time + 2)
+            return send_telegram(message)
+
+        if response.status_code != 200:
+            log(f"Telegram hatası: {response.text}")
             return False
 
         return True
@@ -140,7 +144,7 @@ def is_important(title, summary=""):
 def detect_category(title, summary=""):
     text = f"{title} {summary}".lower()
 
-    if any(w in text for w in ["kaza", "yangın", "patlama", "cinayet", "yaralı", "ölü", "polis", "tutuk"]):
+    if any(w in text for w in ["kaza", "yangın", "patlama", "cinayet", "yaralı", "ölü", "polis", "tutuk", "uyuşturucu"]):
         return "🔴 ACİL"
 
     if any(w in text for w in ["tatar", "üstel", "erhürman", "özersay", "arıklı", "ataoğlu", "hükümet", "meclis", "seçim"]):
@@ -154,7 +158,7 @@ def detect_category(title, summary=""):
 
 def fetch_feed(feed_url):
     try:
-        r = requests.get(
+        response = requests.get(
             feed_url,
             timeout=10,
             headers={
@@ -162,11 +166,11 @@ def fetch_feed(feed_url):
             }
         )
 
-        if r.status_code != 200:
-            log(f"RSS erişim hatası {r.status_code}: {feed_url}")
+        if response.status_code != 200:
+            log(f"RSS erişim hatası {response.status_code}: {feed_url}")
             return None
 
-        return feedparser.parse(r.content)
+        return feedparser.parse(response.content)
 
     except Exception as e:
         log(f"RSS timeout/hata: {feed_url} - {e}")
@@ -177,6 +181,10 @@ def check_rss(seen):
     new_count = 0
 
     for feed_url in RSS_FEEDS:
+        if new_count >= MAX_RSS_SEND_PER_RUN:
+            log("Bu çalıştırmada RSS gönderim limiti doldu.")
+            return new_count
+
         log(f"RSS kontrol ediliyor: {feed_url}")
 
         feed = fetch_feed(feed_url)
@@ -186,7 +194,11 @@ def check_rss(seen):
 
         source_name = feed.feed.get("title", feed_url)
 
-        for entry in feed.entries[:8]:
+        for entry in feed.entries[:6]:
+            if new_count >= MAX_RSS_SEND_PER_RUN:
+                log("Bu çalıştırmada RSS gönderim limiti doldu.")
+                return new_count
+
             title = clean_text(entry.get("title", "Başlık yok"))
             link = entry.get("link", "")
             summary = clean_text(entry.get("summary", ""))
@@ -221,6 +233,7 @@ def check_rss(seen):
             if send_telegram(message):
                 log(f"RSS gönderildi: {title}")
                 new_count += 1
+                time.sleep(2)
 
     return new_count
 
@@ -233,6 +246,10 @@ def check_facebook(seen):
     new_count = 0
 
     for account in FACEBOOK_ACCOUNTS:
+        if new_count >= MAX_FACEBOOK_SEND_PER_RUN:
+            log("Bu çalıştırmada Facebook gönderim limiti doldu.")
+            return new_count
+
         log(f"Facebook kontrol ediliyor: {account['name']}")
 
         try:
@@ -270,6 +287,7 @@ def check_facebook(seen):
                 if send_telegram(message):
                     log(f"Facebook gönderildi: {account['name']}")
                     new_count += 1
+                    time.sleep(2)
 
                 break
 
