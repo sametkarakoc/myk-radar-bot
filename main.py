@@ -15,21 +15,36 @@ CHAT_ID = os.getenv("CHAT_ID")
 SEEN_FILE = "seen.json"
 
 RSS_FEEDS = [
+    # Mevcut çalışan ana kaynaklar
     "https://www.gundemkibris.com/rss",
     "https://www.kibrispostasi.com/rss",
-    "https://haberkibris.com/rss",
     "https://www.kibrisgazetesi.com/rss",
     "https://www.diyaloggazetesi.com/rss",
 
-    "https://www.kktcb.org/tr/rss",
-    "https://www.kktcb.org/tr/feed",
+    # Aktif KKTC gazeteleri / haber siteleri - RSS adayları
+    "https://www.yeniduzen.com/rss",
+    "https://www.detaykibris.com/rss",
+    "https://www.kibrismanset.com/rss",
+    "https://www.kibrisgercek.com/rss",
+    "https://www.kibristime.com/rss",
+    "https://www.nehaberkibris.com/rss",
+    "https://www.giynikgazetesi.com/rss",
+    "https://www.ozgurgazetekibris.com/rss",
+    "https://www.kibrisadahaber.com/rss",
+    "https://www.kibrisgenctv.com/rss",
+    "https://www.brtk.net/rss",
+    "https://www.havadiskibris.com/rss",
+    "https://www.starkibris.net/rss",
+
+    # Alternatif RSS formatları
+    "https://kibrisgazetesi.com.tr/rss/",
+    "https://www.kibrispostasi.com/feed",
+    "https://www.yeniduzen.com/feed",
+    "https://www.detaykibris.com/feed",
+
+    # Siyasi parti kaynakları
     "https://ubp.org.tr/feed/",
-    "https://www.ctp.org.cy/feed/",
-    "https://halkinpartisi.org/feed/",
     "https://www.dp.org.tr/feed/",
-    "https://ydp.org.tr/feed/",
-    "https://saglik.gov.ct.tr/HABERLER/category/haberler/rss",
-    "https://saglik.gov.ct.tr/HABERLER/category/duyurular/rss",
 ]
 
 FACEBOOK_ACCOUNTS = [
